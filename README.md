@@ -12,4 +12,4 @@ Guide-
 - Aftab hussain
 
 TA-
-- Advaita
+- Ruthwik
