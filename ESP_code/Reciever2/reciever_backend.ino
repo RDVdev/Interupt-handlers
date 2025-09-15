@@ -14,12 +14,15 @@ const char* password = "help@2326";
 
 // ------------------ Server ------------------
 String baseServerUrl = "http://10.23.123.216:5000";
-String deviceID = "ESP32_LORA_01";   // <-- change this to unique ID for each node
+String deviceID = "receiver2";   // Change this to receiver1, receiver2, receiver3, etc.
 
 void setup() {
   Serial.begin(115200);
   while (!Serial);
 
+  Serial.print("Device ID: ");
+  Serial.println(deviceID);
+  
   // ---- WiFi connect ----
   Serial.print("Connecting to WiFi ");
   Serial.print(ssid);
@@ -54,33 +57,40 @@ void loop() {
     Serial.print(" | RSSI: ");
     Serial.println(rssi);
 
-    // ---- Upload to Flask server ----
-    if (WiFi.status() == WL_CONNECTED) {
-      HTTPClient http;
+    // Verify if message equals "skywalker"
+    if (received == "skywalker") {
+      Serial.println("Valid skywalker message detected!");
+      
+      // ---- Upload to Flask server ----
+      if (WiFi.status() == WL_CONNECTED) {
+        HTTPClient http;
 
-      String endpoint = baseServerUrl + "/" + deviceID + "/data";
-      http.begin(endpoint);
+        String endpoint = baseServerUrl + "/" + deviceID + "/data";
+        http.begin(endpoint);
 
-      http.addHeader("Content-Type", "application/json");
+        http.addHeader("Content-Type", "application/json");
 
-      // JSON payload
-      String payload = "{ \"message\": \"" + received + "\", \"rssi\": " + String(rssi) + " }";
+        // JSON payload with message and RSSI
+        String payload = "{ \"message\": \"skywalker\", \"rssi\": " + String(rssi) + " }";
 
-      int httpResponseCode = http.POST(payload);
+        int httpResponseCode = http.POST(payload);
 
-      if (httpResponseCode > 0) {
-        Serial.print("Server Response (");
-        Serial.print(httpResponseCode);
-        Serial.print("): ");
-        Serial.println(http.getString());
+        if (httpResponseCode > 0) {
+          Serial.print("Server Response (");
+          Serial.print(httpResponseCode);
+          Serial.print("): ");
+          Serial.println(http.getString());
+        } else {
+          Serial.print("Error code: ");
+          Serial.println(httpResponseCode);
+        }
+
+        http.end();
       } else {
-        Serial.print("Error code: ");
-        Serial.println(httpResponseCode);
+        Serial.println("WiFi disconnected!");
       }
-
-      http.end();
     } else {
-      Serial.println("WiFi disconnected!");
+      Serial.println("Invalid message - not skywalker");
     }
   }
 }
