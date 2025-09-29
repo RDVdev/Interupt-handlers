@@ -33,12 +33,15 @@ void setup() {
 
   // Setup LoRa transceiver module
   LoRa.setPins(SS, RST, DIO0);
-  // LoRa.setTxPower(20);
 
   if (!LoRa.begin(868E6)) {   // Change to 868E6 or 915E6 depending on your region
     Serial.println("Starting LoRa failed!");
     while (1);
   }
+  
+  // Configure LoRa parameters
+  LoRa.setTxPower(20);        // Set TX power to 20 dBm
+  LoRa.setSpreadingFactor(12); // Set spreading factor to 12
   
   Serial.println("Press button to send packet...");
 }
