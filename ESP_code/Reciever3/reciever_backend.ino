@@ -57,40 +57,51 @@ void loop() {
     Serial.print(" | RSSI: ");
     Serial.println(rssi);
 
-    // Verify if message equals "skywalker"
-    if (received == "skywalker") {
-      Serial.println("Valid skywalker message detected!");
-      
-      // ---- Upload to Flask server ----
-      if (WiFi.status() == WL_CONNECTED) {
-        HTTPClient http;
+    // Parse message and sequence number
+    int colonIndex = received.indexOf(':');
+    if (colonIndex > 0) {
+      String message = received.substring(0, colonIndex);
+      String seqStr = received.substring(colonIndex + 1);
+      int seq = seqStr.toInt();
 
-        String endpoint = baseServerUrl + "/" + deviceID + "/data";
-        http.begin(endpoint);
+      // Verify if message equals "skywalker"
+      if (message == "skywalker") {
+        Serial.print("Valid skywalker message detected! Seq: ");
+        Serial.println(seq);
+        
+        // ---- Upload to Flask server ----
+        if (WiFi.status() == WL_CONNECTED) {
+          HTTPClient http;
 
-        http.addHeader("Content-Type", "application/json");
+          String endpoint = baseServerUrl + "/" + deviceID + "/data";
+          http.begin(endpoint);
 
-        // JSON payload with message and RSSI
-        String payload = "{ \"message\": \"skywalker\", \"rssi\": " + String(rssi) + " }";
+          http.addHeader("Content-Type", "application/json");
 
-        int httpResponseCode = http.POST(payload);
+          // JSON payload with message, RSSI, and sequence number
+          String payload = "{ \"message\": \"skywalker\", \"rssi\": " + String(rssi) + ", \"seq\": " + String(seq) + " }";
 
-        if (httpResponseCode > 0) {
-          Serial.print("Server Response (");
-          Serial.print(httpResponseCode);
-          Serial.print("): ");
-          Serial.println(http.getString());
+          int httpResponseCode = http.POST(payload);
+
+          if (httpResponseCode > 0) {
+            Serial.print("Server Response (");
+            Serial.print(httpResponseCode);
+            Serial.print("): ");
+            Serial.println(http.getString());
+          } else {
+            Serial.print("Error code: ");
+            Serial.println(httpResponseCode);
+          }
+
+          http.end();
         } else {
-          Serial.print("Error code: ");
-          Serial.println(httpResponseCode);
+          Serial.println("WiFi disconnected!");
         }
-
-        http.end();
       } else {
-        Serial.println("WiFi disconnected!");
+        Serial.println("Invalid message - not skywalker");
       }
     } else {
-      Serial.println("Invalid message - not skywalker");
+      Serial.println("Invalid packet format - no sequence number");
     }
   }
 }

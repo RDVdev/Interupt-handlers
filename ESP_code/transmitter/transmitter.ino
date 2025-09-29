@@ -9,7 +9,7 @@
 
 // Global variables
 volatile bool sendPacket = false;
-
+int seqpacket = 0;
 // Interrupt handler for button press
 void IRAM_ATTR buttonISR() {
   sendPacket = true;
@@ -44,10 +44,14 @@ void loop() {
     Serial.println("Button pressed! Sending packet...");
     
     LoRa.beginPacket();
-    LoRa.print("skywalker");
+    LoRa.print("skywalker:");
+    LoRa.print(seqpacket);
     LoRa.endPacket();
     
-    Serial.println("Packet sent: skywalker");
+    Serial.print("Packet sent: skywalker:");
+    Serial.println(seqpacket);
+    
+    seqpacket = seqpacket + 1;
     
     // Small delay to debounce
     delay(200);
