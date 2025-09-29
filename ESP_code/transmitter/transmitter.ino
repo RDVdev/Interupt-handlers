@@ -10,14 +10,20 @@
 // Global variables
 volatile bool sendPacket = false;
 int seqpacket = 0;
+int buttonDebounceCounter = 0;
+int debounceInterval = 250;
 // Interrupt handler for button press
 void IRAM_ATTR buttonISR() {
-  sendPacket = true;
+  if(buttonDebounceCounter + debounceInterval <= millis()){
+    sendPacket = true;
+    buttonDebounceCounter = millis();
+  }
 }
 
 void setup() {
   Serial.begin(115200);
   while (!Serial);
+  buttonDebounceCounter = millis();
 
   Serial.println("LoRa Transmitter");
 
