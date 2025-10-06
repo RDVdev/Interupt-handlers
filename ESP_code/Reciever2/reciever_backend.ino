@@ -4,10 +4,13 @@
 #include <HTTPClient.h>
 
 // ------------------ LoRa Pins ------------------
-#define SS      5
-#define RST     14
+#define SCK     13
+#define MOSI    11
+#define MISO    12
+#define SS      10
+#define RST     9
+#define DIO1    3
 #define DIO0    2
-
 // ------------------ WiFi ------------------
 const char* ssid = "OnePlus Nord CE3 5G";
 const char* password = "help@2326";

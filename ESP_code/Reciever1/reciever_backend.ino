@@ -3,9 +3,21 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 
-// ------------------ LoRa Pins ------------------
-#define SS      5
-#define RST     14
+// ------------------ LoRa / SPI Pins ------------------
+// New wiring:
+// SCK  -> D13 (GPIO 13)
+// MOSI -> D11 (GPIO 11)
+// MISO -> D12 (GPIO 12)
+// NSS  -> D10 (GPIO 10)
+// RESET-> D9  (GPIO 9)
+// DIO1 -> D3  (GPIO 3)
+// DIO0 -> D2  (GPIO 2)
+#define SCK     13
+#define MOSI    11
+#define MISO    12
+#define SS      10
+#define RST     9
+#define DIO1    3
 #define DIO0    2
 
 // ------------------ WiFi ------------------
@@ -31,12 +43,11 @@ void setup() {
     delay(500);
     Serial.print(".");
   }
-  Serial.println("\nWiFi connected.");
+  Serial.println("\nWiFi connected.");  
 
   // ---- LoRa init ----
   Serial.println("LoRa Receiver");
   LoRa.setPins(SS, RST, DIO0);
-
   if (!LoRa.begin(868E6)) {   // Change to 868E6 or 915E6 if needed
     Serial.println("Starting LoRa failed!");
     while (1);

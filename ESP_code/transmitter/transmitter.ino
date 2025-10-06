@@ -2,10 +2,14 @@
 #include <LoRa.h>
 
 // Pin mapping for ESP32
-#define SS      5   // NSS
-#define RST     14  // RESET
-#define DIO0    2   // DIO0
-#define BUTTON_PIN 4  // Button pin with pull-up
+#define SCK     13
+#define MOSI    11
+#define MISO    12
+#define SS      10
+#define RST     9
+#define DIO1    3
+#define DIO0    2
+#define BUTTON_PIN 4
 
 // Global variables
 volatile bool sendPacket = false;
@@ -26,15 +30,11 @@ void setup() {
   buttonDebounceCounter = millis();
 
   Serial.println("LoRa Transmitter");
-
-  // Setup button with pull-up and interrupt
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), buttonISR, FALLING);
-
-  // Setup LoRa transceiver module
   LoRa.setPins(SS, RST, DIO0);
 
-  if (!LoRa.begin(868E6)) {   // Change to 868E6 or 915E6 depending on your region
+  if (!LoRa.begin(868E6)) {
     Serial.println("Starting LoRa failed!");
     while (1);
   }
