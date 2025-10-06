@@ -1,9 +1,17 @@
 #include <SPI.h>
 #include <LoRa.h>
-#include <WiFi.h>
-#include <HTTPClient.h>
+#include <WiFiNINA.h>
+#include <ArduinoHttpClient.h>
 
-// ------------------ LoRa Pins ------------------
+// ------------------ LoRa / SPI Pins ------------------
+// New wiring:
+// SCK  -> D13 (GPIO 13)
+// MOSI -> D11 (GPIO 11)
+// MISO -> D12 (GPIO 12)
+// NSS  -> D10 (GPIO 10)
+// RESET-> D9  (GPIO 9)
+// DIO1 -> D3  (GPIO 3)
+// DIO0 -> D2  (GPIO 2)
 #define SCK     13
 #define MOSI    11
 #define MISO    12
@@ -11,13 +19,14 @@
 #define RST     9
 #define DIO1    3
 #define DIO0    2
+
 // ------------------ WiFi ------------------
 const char* ssid = "OnePlus Nord CE3 5G";
 const char* password = "help@2326";
 
 // ------------------ Server ------------------
-String baseServerUrl = "http://10.23.123.216:5000";
-String deviceID = "receiver2";   // Change this to receiver1, receiver2, receiver3, etc.
+String baseServerUrl = "MorningStar.local:5000";
+String deviceID = "receiver1";   // Change this to receiver1, receiver2, receiver3, etc.
 
 void setup() {
   Serial.begin(115200);
@@ -34,12 +43,11 @@ void setup() {
     delay(500);
     Serial.print(".");
   }
-  Serial.println("\nWiFi connected.");
+  Serial.println("\nWiFi connected.");  
 
   // ---- LoRa init ----
   Serial.println("LoRa Receiver");
   LoRa.setPins(SS, RST, DIO0);
-
   if (!LoRa.begin(868E6)) {   // Change to 868E6 or 915E6 if needed
     Serial.println("Starting LoRa failed!");
     while (1);
@@ -72,31 +80,31 @@ void loop() {
         Serial.print("Valid skywalker message detected! Seq: ");
         Serial.println(seq);
         
-        // ---- Upload to Flask server ----
+        // ---- Upload to Flask server using ArduinoHttpClient ----
         if (WiFi.status() == WL_CONNECTED) {
-          HTTPClient http;
+          WiFiClient wifi;
+          const char* server = "MorningStar.local";
+          const uint16_t port = 5000;
+          HttpClient httpClient(wifi, server, port);
 
-          String endpoint = baseServerUrl + "/" + deviceID + "/data";
-          http.begin(endpoint);
-
-          http.addHeader("Content-Type", "application/json");
-
-          // JSON payload with message, RSSI, and sequence number
+          String url = "/" + deviceID + "/data";
           String payload = "{ \"message\": \"skywalker\", \"rssi\": " + String(rssi) + ", \"seq\": " + String(seq) + " }";
 
-          int httpResponseCode = http.POST(payload);
+          httpClient.beginRequest();
+          httpClient.post(url);
+          httpClient.sendHeader("Content-Type", "application/json");
+          httpClient.sendHeader("Content-Length", String(payload.length()));
+          httpClient.beginBody();
+          httpClient.print(payload);
+          httpClient.endRequest();
 
-          if (httpResponseCode > 0) {
-            Serial.print("Server Response (");
-            Serial.print(httpResponseCode);
-            Serial.print("): ");
-            Serial.println(http.getString());
-          } else {
-            Serial.print("Error code: ");
-            Serial.println(httpResponseCode);
-          }
+          int statusCode = httpClient.responseStatusCode();
+          String response = httpClient.responseBody();
 
-          http.end();
+          Serial.print("Server Response (");
+          Serial.print(statusCode);
+          Serial.print("): ");
+          Serial.println(response);
         } else {
           Serial.println("WiFi disconnected!");
         }

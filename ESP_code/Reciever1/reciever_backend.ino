@@ -1,7 +1,7 @@
 #include <SPI.h>
 #include <LoRa.h>
-#include <WiFi.h>
-#include <HTTPClient.h>
+#include <WiFiNINA.h>
+#include <ArduinoHttpClient.h>
 
 // ------------------ LoRa / SPI Pins ------------------
 // New wiring:
@@ -25,7 +25,7 @@ const char* ssid = "OnePlus Nord CE3 5G";
 const char* password = "help@2326";
 
 // ------------------ Server ------------------
-String baseServerUrl = "http://10.23.123.216:5000";
+String baseServerUrl = "MorningStar.local:5000";
 String deviceID = "receiver1";   // Change this to receiver1, receiver2, receiver3, etc.
 
 void setup() {
@@ -80,31 +80,31 @@ void loop() {
         Serial.print("Valid skywalker message detected! Seq: ");
         Serial.println(seq);
         
-        // ---- Upload to Flask server ----
+        // ---- Upload to Flask server using ArduinoHttpClient ----
         if (WiFi.status() == WL_CONNECTED) {
-          HTTPClient http;
+          WiFiClient wifi;
+          const char* server = "MorningStar.local";
+          const uint16_t port = 5000;
+          HttpClient httpClient(wifi, server, port);
 
-          String endpoint = baseServerUrl + "/" + deviceID + "/data";
-          http.begin(endpoint);
-
-          http.addHeader("Content-Type", "application/json");
-
-          // JSON payload with message, RSSI, and sequence number
+          String url = "/" + deviceID + "/data";
           String payload = "{ \"message\": \"skywalker\", \"rssi\": " + String(rssi) + ", \"seq\": " + String(seq) + " }";
 
-          int httpResponseCode = http.POST(payload);
+          httpClient.beginRequest();
+          httpClient.post(url);
+          httpClient.sendHeader("Content-Type", "application/json");
+          httpClient.sendHeader("Content-Length", String(payload.length()));
+          httpClient.beginBody();
+          httpClient.print(payload);
+          httpClient.endRequest();
 
-          if (httpResponseCode > 0) {
-            Serial.print("Server Response (");
-            Serial.print(httpResponseCode);
-            Serial.print("): ");
-            Serial.println(http.getString());
-          } else {
-            Serial.print("Error code: ");
-            Serial.println(httpResponseCode);
-          }
+          int statusCode = httpClient.responseStatusCode();
+          String response = httpClient.responseBody();
 
-          http.end();
+          Serial.print("Server Response (");
+          Serial.print(statusCode);
+          Serial.print("): ");
+          Serial.println(response);
         } else {
           Serial.println("WiFi disconnected!");
         }
