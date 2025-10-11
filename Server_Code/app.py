@@ -3,7 +3,7 @@ from flask_socketio import SocketIO, emit
 import sqlite3
 import json
 from datetime import datetime
-
+import time
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
 socketio = SocketIO(app, cors_allowed_origins="*", logger=True, engineio_logger=True)
@@ -17,7 +17,7 @@ def from_json_filter(value):
         return {}
 
 # SQLite DB setup
-DATABASE = 'device_data.db'
+DATABASE = "device_data"+str(time.ctime())
 
 # Track last sequence number per device for packet loss calculation
 last_seq = {}
