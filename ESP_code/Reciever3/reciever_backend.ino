@@ -1,111 +1,129 @@
 #include <SPI.h>
 #include <LoRa.h>
-#include <WiFi.h>
-#include <HTTPClient.h>
+#include <WiFiNINA.h>
+#include <ArduinoHttpClient.h>
 
-// ------------------ LoRa Pins ------------------
-#define SCK     13
-#define MOSI    11
-#define MISO    12
-#define SS      10
-#define RST     9
-#define DIO1    3
-#define DIO0    2
+// ==== LoRa Pins ====
+#define LORA_SS     10
+#define LORA_RST    9
+#define LORA_DIO0   2
+#define LORA_DIO1   3   // Optional
 
-// ------------------ WiFi ------------------
-const char* ssid = "OnePlus Nord CE3 5G";
-const char* password = "help@2326";
+// ==== WiFi Config ====
+const char* WIFI_SSID = "OnePlus Nord CE3 5G";
+const char* WIFI_PASS = "help@2326";
 
-// ------------------ Server ------------------
-String baseServerUrl = "http://10.23.123.216:5000";
-String deviceID = "receiver3";   // Change this to receiver1, receiver2, receiver3, etc.
+// ==== Server Config ====
+const char* SERVER = "10.148.60.254";  // Flask server IP
+const int SERVER_PORT = 5000;
+
+WiFiClient wifiClient;
+HttpClient client(wifiClient, SERVER, SERVER_PORT);
+
+const char* TEAM_ID = "skywalker"; // For filtering LoRa messages
 
 void setup() {
   Serial.begin(115200);
   while (!Serial);
 
-  Serial.print("Device ID: ");
-  Serial.println(deviceID);
-  
-  // ---- WiFi connect ----
-  Serial.print("Connecting to WiFi ");
-  Serial.print(ssid);
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("\nWiFi connected.");
+  Serial.println("\n=== Initializing LoRa Receiver + WiFi ===");
 
-  // ---- LoRa init ----
-  Serial.println("LoRa Receiver");
-  LoRa.setPins(SS, RST, DIO0);
+  connectToWiFi();
 
-  if (!LoRa.begin(868E6)) {   // Change to 868E6 or 915E6 if needed
-    Serial.println("Starting LoRa failed!");
+  // ----- Setup LoRa -----
+  LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
+  if (!LoRa.begin(868E6)) {
+    Serial.println("❌ LoRa init failed! Check wiring.");
     while (1);
   }
+
+  LoRa.setSyncWord(0xAB);  // Must match transmitter
+  LoRa.setSpreadingFactor(12);
+  LoRa.setSignalBandwidth(125E3);
+  LoRa.setCodingRate4(8);
+
+  Serial.println("✅ LoRa Receiver ready! Waiting for packets...");
 }
 
 void loop() {
   int packetSize = LoRa.parsePacket();
+
   if (packetSize) {
-    String received = "";
+    Serial.println("\n📩 Packet received!");
+
+    String message = "";
     while (LoRa.available()) {
-      received += (char)LoRa.read();
+      message += (char)LoRa.read();
     }
+
     int rssi = LoRa.packetRssi();
+    float snr = LoRa.packetSnr();
 
-    Serial.print("Received: ");
-    Serial.print(received);
-    Serial.print(" | RSSI: ");
+    Serial.print("Received LoRa message: ");
+    Serial.println(message);
+    Serial.print("RSSI: ");
     Serial.println(rssi);
+    Serial.print("SNR: ");
+    Serial.println(snr);
 
-    // Parse message and sequence number
-    int colonIndex = received.indexOf(':');
-    if (colonIndex > 0) {
-      String message = received.substring(0, colonIndex);
-      String seqStr = received.substring(colonIndex + 1);
-      int seq = seqStr.toInt();
+    // Only process messages from the team
+    if (message.startsWith(TEAM_ID)) {
+      // Extract SEQ number from message
+      int seqIndex = message.indexOf("SEQ:");
+      int seqNum = -1;
+      if (seqIndex != -1) {
+        String seqStr = message.substring(seqIndex + 4); // Get everything after "SEQ:"
+        seqStr.trim();
+        seqNum = seqStr.toInt();
+        Serial.print("➡ Sequence Number from transmitter: ");
+        Serial.println(seqNum);
 
-      // Verify if message equals "skywalker"
-      if (message == "skywalker") {
-        Serial.print("Valid skywalker message detected! Seq: ");
-        Serial.println(seq);
-        
-        // ---- Upload to Flask server ----
-        if (WiFi.status() == WL_CONNECTED) {
-          HTTPClient http;
-
-          String endpoint = baseServerUrl + "/" + deviceID + "/data";
-          http.begin(endpoint);
-
-          http.addHeader("Content-Type", "application/json");
-
-          // JSON payload with message, RSSI, and sequence number
-          String payload = "{ \"message\": \"skywalker\", \"rssi\": " + String(rssi) + ", \"seq\": " + String(seq) + " }";
-
-          int httpResponseCode = http.POST(payload);
-
-          if (httpResponseCode > 0) {
-            Serial.print("Server Response (");
-            Serial.print(httpResponseCode);
-            Serial.print("): ");
-            Serial.println(http.getString());
-          } else {
-            Serial.print("Error code: ");
-            Serial.println(httpResponseCode);
-          }
-
-          http.end();
-        } else {
-          Serial.println("WiFi disconnected!");
-        }
+        // Upload RSSI and SEQ to server
+        uploadRSSI(seqNum, rssi);
       } else {
-        Serial.println("Invalid message - not skywalker");
+        Serial.println("⚠ No SEQ found in message");
       }
-    } else {
-      Serial.println("Invalid packet format - no sequence number");
     }
   }
+}
+
+// ----- Connect to WiFi -----
+void connectToWiFi() {
+  Serial.print("Connecting to WiFi: ");
+  Serial.println(WIFI_SSID);
+
+  while (WiFi.begin(WIFI_SSID, WIFI_PASS) != WL_CONNECTED) {
+    Serial.print(".");
+    delay(1000);
+  }
+
+  Serial.println("\n✅ Connected to WiFi!");
+  Serial.print("Local IP Address: ");
+  Serial.println(WiFi.localIP());
+}
+
+// ----- Upload RSSI to Flask server -----
+void uploadRSSI(int seq, int rssi) {
+  String endpoint = "/RX003/data";  // Flask endpoint
+  String payload = String("{\"message\":\"skywalker\",\"seq\":") + String(seq) +
+                   String(",\"rssi\":") + String(rssi) + "}";
+
+  Serial.print("⬆️ Uploading RSSI to ");
+  Serial.println(endpoint);
+
+  client.beginRequest();
+  client.post(endpoint);
+  client.sendHeader("Content-Type", "application/json");
+  client.sendHeader("Content-Length", payload.length());
+  client.beginBody();
+  client.print(payload);
+  client.endRequest();
+
+  int statusCode = client.responseStatusCode();
+  String response = client.responseBody();
+
+  Serial.print("Server response (");
+  Serial.print(statusCode);
+  Serial.println("):");
+  Serial.println(response);
 }

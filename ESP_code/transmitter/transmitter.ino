@@ -1,71 +1,69 @@
 #include <SPI.h>
 #include <LoRa.h>
 
-// Pin mapping for ESP32
-#define SCK     13
-#define MOSI    11
-#define MISO    12
-#define SS      10
-#define RST     9
-#define DIO1    3
-#define DIO0    2
-#define BUTTON_PIN 4
+#define LORA_SS     10
+#define LORA_RST    9
+#define LORA_DIO0   2
+#define LORA_DIO1   3   // Optional
+#define BUTTON_PIN  4   // One side to GND, uses internal pull-up
 
-// Global variables
-volatile bool sendPacket = false;
-int seqpacket = 0;
-int buttonDebounceCounter = 0;
-int debounceInterval = 250;
-// Interrupt handler for button press
-void IRAM_ATTR buttonISR() {
-  if(buttonDebounceCounter + debounceInterval <= millis()){
-    sendPacket = true;
-    buttonDebounceCounter = millis();
-  }
-}
+const char* TEAM_ID = "skywalker";
+int packetCount = 0;
 
 void setup() {
   Serial.begin(115200);
   while (!Serial);
-  buttonDebounceCounter = millis();
 
-  Serial.println("LoRa Transmitter");
+  Serial.println("\n=== Initializing LoRa Transmitter ===");
+
   pinMode(BUTTON_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), buttonISR, FALLING);
-  LoRa.setPins(SS, RST, DIO0);
 
-  if (!LoRa.begin(868E6)) {
-    Serial.println("Starting LoRa failed!");
+  LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
+  if (!LoRa.begin(868E6)) {   // Use 915E6 for US region
+    Serial.println("LoRa init failed! Check wiring.");
     while (1);
   }
-  
+
   // Configure LoRa parameters
-  LoRa.setTxPower(20);        // Set TX power to 20 dBm
-  LoRa.setSpreadingFactor(12); // Set spreading factor to 12
-  
-  Serial.println("Press button to send packet...");
+  LoRa.setSyncWord(0xAB);                  // Must match receiver
+  LoRa.setTxPower(20, PA_OUTPUT_PA_BOOST_PIN);
+  LoRa.setSpreadingFactor(12);
+  LoRa.setSignalBandwidth(125E3);
+  LoRa.setCodingRate4(8);
+
+  Serial.println("LoRa Transmitter ready! Press the button to send packets.");
 }
 
 void loop() {
-  if (sendPacket) {
-    sendPacket = false; // Reset flag
-    
-    Serial.println("Button pressed! Sending packet...");
-    
-    LoRa.beginPacket();
-    LoRa.print("skywalker:");
-    LoRa.print(seqpacket);
-    LoRa.endPacket();
-    
-    Serial.print("Packet sent: skywalker:");
-    Serial.println(seqpacket);
-    
-    seqpacket = seqpacket + 1;
-    
-    // Small delay to debounce
-    delay(200);
+  static bool buttonPressed = false;
+
+  if (digitalRead(BUTTON_PIN) == LOW && !buttonPressed) {
+    buttonPressed = true;
+
+    // Serial.println("Button pressed → Sending 2 packets...");
+
+      sendPacket();
+      packetCount++;
+      delay(500); // delay between packets
+
+    Serial.println("✅ Done sending packets.");
   }
-  
-  // Small delay to prevent excessive CPU usage
-  delay(10);
+
+  // Wait until button released before next trigger
+  if (digitalRead(BUTTON_PIN) == HIGH && buttonPressed) {
+    buttonPressed = false;
+  }
+}
+
+void sendPacket() {
+  Serial.print("Sending packet SEQ:");
+  Serial.println(packetCount + 1);
+
+  LoRa.beginPacket();
+  LoRa.print(TEAM_ID);
+  LoRa.print(" SEQ:");
+  LoRa.print(packetCount + 1);
+  LoRa.endPacket();
+
+  Serial.println("→ Packet sent!");
 }
