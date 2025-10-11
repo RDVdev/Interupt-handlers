@@ -120,7 +120,7 @@ def index():
             
             <style>
                 /* CSS Custom Properties - Corporate Color Palette */
-                :root {
+                :root { 
                     /* Primary Colors */
                     --color-background: #F9FAFB;
                     --color-text-primary: #111827;
@@ -1019,12 +1019,17 @@ def index():
                      */
                     function updateReceiverCard(deviceId, data, seq, packetLoss) {
                         // Find the receiver card for this device
-                        const receiverCard = document.querySelector(`[data-device-id="${deviceId}"]`);
+                        let receiverCard = document.querySelector(`[data-device-id="${deviceId}"]`);
                         
-                        if (receiverCard) {
-                            // Update RSSI value and color coding
-                            const rssiValue = receiverCard.querySelector('.rssi-value');
-                            if (rssiValue && data.rssi) {
+                        // If card doesn't exist, create it
+                        if (!receiverCard) {
+                            receiverCard = createReceiverCard(deviceId);
+                        }
+                        
+                        // Update RSSI value and color coding
+                        const rssiValue = receiverCard.querySelector('.rssi-value');
+                        if (rssiValue) {
+                            if (data.rssi) {
                                 rssiValue.textContent = data.rssi;
                                 
                                 // Update RSSI color coding based on signal strength
@@ -1036,44 +1041,89 @@ def index():
                                 } else {
                                     rssiValue.setAttribute('data-strength', 'poor');
                                 }
+                            } else {
+                                rssiValue.textContent = '--';
+                                rssiValue.removeAttribute('data-strength');
                             }
-                            
-                            // Update sequence number
-                            const sequenceNumber = receiverCard.querySelector('.sequence-number');
-                            if (sequenceNumber) {
-                                sequenceNumber.textContent = `Seq: ${seq}`;
-                            }
-                            
-                            // Update packet loss indicator
-                            const lossPercentage = receiverCard.querySelector('.loss-percentage');
-                            const progressArc = receiverCard.querySelector('.progress-arc');
-                            if (lossPercentage && progressArc) {
-                                // Calculate packet loss percentage (simple approximation)
-                                const lossPercent = Math.min(packetLoss, 30); // Cap at 30% for display
-                                lossPercentage.textContent = `${lossPercent}%`;
-                                progressArc.setAttribute('data-percentage', lossPercent.toString());
-                                
-                                // Update stroke-dashoffset for progress arc
-                                const circumference = 125.66; // 2 * π * 20
-                                const offset = circumference - (circumference * (lossPercent / 100));
-                                progressArc.style.strokeDashoffset = offset;
-                            }
-                            
-                            // Update status badge to active when receiving data
-                            const statusBadge = receiverCard.querySelector('.status-badge');
-                            if (statusBadge) {
-                                statusBadge.setAttribute('data-status', 'active');
-                                statusBadge.textContent = 'Active';
-                            }
-                            
-                            // Add flash-update class to trigger animation
-                            receiverCard.classList.add('flash-update');
-                            
-                            // Remove the class after animation completes (500ms)
-                            setTimeout(() => {
-                                receiverCard.classList.remove('flash-update');
-                            }, 500);
                         }
+                        
+                        // Update sequence number
+                        const sequenceNumber = receiverCard.querySelector('.sequence-number');
+                        if (sequenceNumber) {
+                            sequenceNumber.textContent = `Seq: ${seq}`;
+                        }
+                        
+                        // Update packet loss indicator
+                        const lossPercentage = receiverCard.querySelector('.loss-percentage');
+                        const progressArc = receiverCard.querySelector('.progress-arc');
+                        if (lossPercentage && progressArc) {
+                            // Calculate packet loss percentage (simple approximation)
+                            const lossPercent = Math.min(packetLoss, 30); // Cap at 30% for display
+                            lossPercentage.textContent = `${lossPercent}%`;
+                            progressArc.setAttribute('data-percentage', lossPercent.toString());
+                            
+                            // Update stroke-dashoffset for progress arc
+                            const circumference = 125.66; // 2 * π * 20
+                            const offset = circumference - (circumference * (lossPercent / 100));
+                            progressArc.style.strokeDashoffset = offset;
+                        }
+                        
+                        // Update status badge to active when receiving data
+                        const statusBadge = receiverCard.querySelector('.status-badge');
+                        if (statusBadge) {
+                            statusBadge.setAttribute('data-status', 'active');
+                            statusBadge.textContent = 'Active';
+                        }
+                        
+                        // Add flash-update class to trigger animation
+                        receiverCard.classList.add('flash-update');
+                        
+                        // Remove the class after animation completes (500ms)
+                        setTimeout(() => {
+                            receiverCard.classList.remove('flash-update');
+                        }, 500);
+                    }
+
+                    /**
+                     * Create a new receiver card for a device
+                     */
+                    function createReceiverCard(deviceId) {
+                        const container = document.getElementById('receivers-container');
+                        
+                        // Create the card HTML
+                        const cardHTML = `
+                            <div class="receiver-card" data-device-id="${deviceId}">
+                                <div class="card-header">
+                                    <h3 class="receiver-name">${deviceId}</h3>
+                                    <span class="status-badge" data-status="disconnected">Disconnected</span>
+                                </div>
+                                <div class="card-body">
+                                    <div class="device-id">${deviceId}</div>
+                                    <div class="rssi-display">
+                                        <span class="rssi-value">--</span>
+                                        <span class="rssi-label">RSSI</span>
+                                    </div>
+                                    <div class="packet-loss-indicator">
+                                        <svg class="progress-circle">
+                                            <circle class="progress-bg" cx="24" cy="24" r="20"></circle>
+                                            <circle class="progress-arc" cx="24" cy="24" r="20" data-percentage="0"></circle>
+                                        </svg>
+                                        <span class="loss-percentage">0%</span>
+                                    </div>
+                                    <div class="sequence-number">Seq: --</div>
+                                </div>
+                            </div>
+                        `;
+                        
+                        // Create a temporary div to hold the HTML
+                        const tempDiv = document.createElement('div');
+                        tempDiv.innerHTML = cardHTML;
+                        const newCard = tempDiv.firstElementChild;
+                        
+                        // Add the card to the container
+                        container.appendChild(newCard);
+                        
+                        return newCard;
                     }
 
                     socket.on('new_data', function(msg) {
@@ -1153,94 +1203,7 @@ def index():
                             <h2 class="panel-title">Receiver Overview</h2>
                         </div>
                         <div class="receivers-grid" id="receivers-container">
-                            <!-- Receiver Card Template - Sample Cards with Placeholder Data -->
-                            <div class="receiver-card" data-device-id="RX001">
-                                <div class="card-header">
-                                    <h3 class="receiver-name">Receiver 1</h3>
-                                    <span class="status-badge" data-status="active">Active</span>
-                                </div>
-                                <div class="card-body">
-                                    <div class="device-id">RX001</div>
-                                    <div class="rssi-display">
-                                        <span class="rssi-value" data-strength="good">-45</span>
-                                        <span class="rssi-label">RSSI</span>
-                                    </div>
-                                    <div class="packet-loss-indicator">
-                                        <svg class="progress-circle">
-                                            <circle class="progress-bg" cx="24" cy="24" r="20"></circle>
-                                            <circle class="progress-arc" cx="24" cy="24" r="20" data-percentage="2"></circle>
-                                        </svg>
-                                        <span class="loss-percentage">2%</span>
-                                    </div>
-                                    <div class="sequence-number">Seq: 1247</div>
-                                </div>
-                            </div>
-                            
-                            <div class="receiver-card" data-device-id="RX002">
-                                <div class="card-header">
-                                    <h3 class="receiver-name">Receiver 2</h3>
-                                    <span class="status-badge" data-status="active">Active</span>
-                                </div>
-                                <div class="card-body">
-                                    <div class="device-id">RX002</div>
-                                    <div class="rssi-display">
-                                        <span class="rssi-value" data-strength="medium">-67</span>
-                                        <span class="rssi-label">RSSI</span>
-                                    </div>
-                                    <div class="packet-loss-indicator">
-                                        <svg class="progress-circle">
-                                            <circle class="progress-bg" cx="24" cy="24" r="20"></circle>
-                                            <circle class="progress-arc" cx="24" cy="24" r="20" data-percentage="5"></circle>
-                                        </svg>
-                                        <span class="loss-percentage">5%</span>
-                                    </div>
-                                    <div class="sequence-number">Seq: 892</div>
-                                </div>
-                            </div>
-                            
-                            <div class="receiver-card" data-device-id="RX003">
-                                <div class="card-header">
-                                    <h3 class="receiver-name">Receiver 3</h3>
-                                    <span class="status-badge" data-status="disconnected">Disconnected</span>
-                                </div>
-                                <div class="card-body">
-                                    <div class="device-id">RX003</div>
-                                    <div class="rssi-display">
-                                        <span class="rssi-value" data-strength="poor">-89</span>
-                                        <span class="rssi-label">RSSI</span>
-                                    </div>
-                                    <div class="packet-loss-indicator">
-                                        <svg class="progress-circle">
-                                            <circle class="progress-bg" cx="24" cy="24" r="20"></circle>
-                                            <circle class="progress-arc" cx="24" cy="24" r="20" data-percentage="15"></circle>
-                                        </svg>
-                                        <span class="loss-percentage">15%</span>
-                                    </div>
-                                    <div class="sequence-number">Seq: 456</div>
-                                </div>
-                            </div>
-                            
-                            <div class="receiver-card" data-device-id="RX004">
-                                <div class="card-header">
-                                    <h3 class="receiver-name">Receiver 4</h3>
-                                    <span class="status-badge" data-status="active">Active</span>
-                                </div>
-                                <div class="card-body">
-                                    <div class="device-id">RX004</div>
-                                    <div class="rssi-display">
-                                        <span class="rssi-value" data-strength="good">-52</span>
-                                        <span class="rssi-label">RSSI</span>
-                                    </div>
-                                    <div class="packet-loss-indicator">
-                                        <svg class="progress-circle">
-                                            <circle class="progress-bg" cx="24" cy="24" r="20"></circle>
-                                            <circle class="progress-arc" cx="24" cy="24" r="20" data-percentage="1"></circle>
-                                        </svg>
-                                        <span class="loss-percentage">1%</span>
-                                    </div>
-                                    <div class="sequence-number">Seq: 2103</div>
-                                </div>
-                            </div>
+                            <!-- Receiver cards will be dynamically created when devices send data -->
                         </div>
                     </div>
                     
@@ -1271,7 +1234,7 @@ def index():
                                     </thead>
                                     <!-- Table body with alternating row backgrounds - Requirement 3.4 -->
                                     <tbody id="data-rows">
-                                        {% for device_id, data, seq, packet_loss in rows %}
+                                        {% for device_id, data, seq, packet_loss, timestamp in rows %}
                                             {% set data_obj = data|from_json if data else {} %}
                                             <tr>
                                                 <td class="device-id-col">{{ device_id }}</td>
@@ -1280,7 +1243,7 @@ def index():
                                                 <td class="packet-loss-col">{{ packet_loss }}</td>
                                                 <td class="rssi-col">{{ data_obj.get('rssi', '--') if data_obj else '--' }}</td>
                                                 <td class="uid-col">{{ data_obj.get('uid', '--') if data_obj else '--' }}</td>
-                                                <td class="time-col">--:--:--</td>
+                                                <td class="time-col">{{ timestamp.split('T')[1].split('.')[0] if timestamp else '--:--:--' }}</td>
                                             </tr>
                                         {% endfor %}
                                     </tbody>
