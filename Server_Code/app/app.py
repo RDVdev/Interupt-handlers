@@ -17,7 +17,7 @@ def from_json_filter(value):
         return {}
 
 # SQLite DB setup
-DATABASE = "device_data"+str(time.ctime())
+DATABASE = "device_data_"+str(time.ctime())+"_.db"
 
 # Track last sequence number per device for packet loss calculation
 last_seq = {}
