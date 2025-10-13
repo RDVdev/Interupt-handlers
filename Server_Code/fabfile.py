@@ -60,9 +60,7 @@ Type=simple
 User={SERVER_USER}
 WorkingDirectory={REMOTE_APP_DIR}
 Environment="PATH={REMOTE_APP_DIR}/venv/bin"
-Environment="FLASK_APP=app.py"
-Environment="FLASK_ENV=production"
-ExecStart={REMOTE_APP_DIR}/venv/bin/python -m flask run --host=0.0.0.0 --port={FLASK_PORT}
+ExecStart={REMOTE_APP_DIR}/venv/bin/python app.py
 Restart=always
 RestartSec=3
 

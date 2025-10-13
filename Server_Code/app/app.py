@@ -4,6 +4,8 @@ import sqlite3
 import json
 from datetime import datetime
 import time
+import os
+
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
 socketio = SocketIO(app, cors_allowed_origins="*", logger=True, engineio_logger=True)
@@ -17,13 +19,15 @@ def from_json_filter(value):
         return {}
 
 # SQLite DB setup
-DATABASE = "device_data_"+str(time.ctime())+"_.db"
+# finaltime = ""
+# DATABASE_NAME = ""
+# DATABASE_PATH = ""
 
 # Track last sequence number per device for packet loss calculation
 last_seq = {}
 
 def init_db():
-    with sqlite3.connect(DATABASE) as conn:
+    with sqlite3.connect(DATABASE_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute('''CREATE TABLE IF NOT EXISTS data (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,7 +36,10 @@ def init_db():
                             packet_loss INTEGER DEFAULT 0,
                             data TEXT NOT NULL,
                             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
-        
+        cursor.execute('''CREATE TABLE IF NOT EXISTS loss(
+                       recieverid TEXT PRIMARY KEY,
+                       diffpacket REAL DEFAULT 0)
+                       ''')
         # Check if timestamp column exists and add it if it doesn't (for existing databases)
         cursor.execute("PRAGMA table_info(data)")
         columns = [column[1] for column in cursor.fetchall()]
@@ -64,22 +71,41 @@ def receive_data(device_id):
     current_seq = int(data['seq'])
     
     # Calculate packet loss
-    packet_loss = 0
-    if device_id in last_seq:
-        expected_seq = last_seq[device_id] + 1
-        if current_seq > expected_seq:
-            packet_loss = current_seq - expected_seq
-            print(f"Packet loss detected for {device_id}: {packet_loss} packets lost")
+    # In receive_data function:
+    diff_packet = 0
+    with sqlite3.connect(DATABASE_PATH) as con:
+        cursor = con.cursor()
+        # Fix: Use proper parameter tuple and column name
+        result = cursor.execute("SELECT diffpacket FROM loss WHERE recieverid=?", (device_id,)).fetchone()
+        
+        if result is None:
+            # Device not in table yet, insert it
+            cursor.execute("INSERT INTO loss (recieverid, diffpacket) VALUES (?,?)", (device_id, 0))
+            diff_packet = 0
+        else:
+            diff_packet = result[0]
+        
+        if device_id in last_seq:
+            expected_seq = last_seq[device_id] + 1
+            if current_seq > expected_seq:
+                packets_lost_now = current_seq - expected_seq
+                diff_packet += packets_lost_now
+                cursor.execute("UPDATE loss SET diffpacket=? WHERE recieverid=?", (diff_packet, device_id))
+        
+        con.commit()
+
     
     # Update last sequence number for this device
     last_seq[device_id] = current_seq
     
     # Store data in the SQLite database with current timestamp
     current_timestamp = datetime.now().isoformat()
-    with sqlite3.connect(DATABASE) as conn:
+    with sqlite3.connect(DATABASE_PATH) as conn:
         cursor = conn.cursor()
+        if(current_seq>0):c_packetloss = round((diff_packet/current_seq)*100,2)
+        else:c_packetloss = 0
         cursor.execute("INSERT INTO data (device_id, data, seq, packet_loss, timestamp) VALUES (?, ?, ?, ?, ?)",
-                       (device_id, json.dumps(data), current_seq, packet_loss, current_timestamp))
+                       (device_id, json.dumps(data), current_seq, c_packetloss, current_timestamp))
         conn.commit()
 
     # Emit update event to all connected clients
@@ -87,7 +113,7 @@ def receive_data(device_id):
         'device_id': device_id,
         'data': data,
         'seq': current_seq,
-        'packet_loss': packet_loss
+        'packet_loss': c_packetloss
     }
     print(f"Emitting SocketIO event: {emit_data}")
     socketio.emit('new_data', emit_data)
@@ -97,7 +123,7 @@ def receive_data(device_id):
 @app.route('/')
 def index():
     # Retrieve the latest 20 stored data entries
-    with sqlite3.connect(DATABASE) as conn:
+    with sqlite3.connect(DATABASE_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT device_id, data, seq, packet_loss, timestamp FROM data ORDER BY id DESC LIMIT 20")
         rows = cursor.fetchall()
@@ -1167,10 +1193,6 @@ def index():
                         rssiCell.className = 'rssi-col';
                         rssiCell.textContent = msg.data.rssi || '--';
                         
-                        var uidCell = row.insertCell(5);
-                        uidCell.className = 'uid-col';
-                        uidCell.textContent = msg.data.uid || '--';
-                        
                         var timeCell = row.insertCell(6);
                         timeCell.className = 'time-col';
                         timeCell.textContent = timeString;
@@ -1228,7 +1250,6 @@ def index():
                                             <th class="seq-header">Seq #</th>
                                             <th class="packet-loss-header">Packet Loss</th>
                                             <th class="rssi-header">RSSI</th>
-                                            <th class="uid-header">UID</th>
                                             <th class="time-header">Time</th>
                                         </tr>
                                     </thead>
@@ -1242,7 +1263,6 @@ def index():
                                                 <td class="seq-col">{{ seq }}</td>
                                                 <td class="packet-loss-col">{{ packet_loss }}</td>
                                                 <td class="rssi-col">{{ data_obj.get('rssi', '--') if data_obj else '--' }}</td>
-                                                <td class="uid-col">{{ data_obj.get('uid', '--') if data_obj else '--' }}</td>
                                                 <td class="time-col">{{ timestamp.split('T')[1].split('.')[0] if timestamp else '--:--:--' }}</td>
                                             </tr>
                                         {% endfor %}
@@ -1260,5 +1280,11 @@ def index():
     return render_template_string(html, rows=rows)
 
 if __name__ == '__main__':
+    global finaltime
+    global DATABASE_PATH
+    global DATABASE_NAME
+    finaltime = time.ctime()
+    DATABASE_NAME = str("device_data_"+finaltime+"_.db").replace(" ", "_").replace(":", "_")
+    DATABASE_PATH = os.getcwd() + "/" + DATABASE_NAME
     init_db()
-    socketio.run(app, debug=True, host="0.0.0.0")
+    socketio.run(app, debug=True, host="0.0.0.0", port=8000, allow_unsafe_werkzeug=True, use_reloader=True)
