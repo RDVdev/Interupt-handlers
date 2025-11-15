@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template_string
+from flask import Flask, request, render_template_string, jsonify
 from flask_socketio import SocketIO, emit
 import sqlite3
 import json
@@ -19,9 +19,15 @@ def from_json_filter(value):
         return {}
 
 # SQLite DB setup
-# finaltime = ""
-# DATABASE_NAME = ""
-# DATABASE_PATH = ""
+DEFAULT_DB_FILENAME = os.environ.get('IOT_DB_FILENAME', 'device_data.db')
+DEFAULT_DB_DIRECTORY = os.environ.get(
+    'IOT_DB_DIRECTORY',
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data_store')
+)
+os.makedirs(DEFAULT_DB_DIRECTORY, exist_ok=True)
+
+DATABASE_NAME = DEFAULT_DB_FILENAME
+DATABASE_PATH = os.path.join(DEFAULT_DB_DIRECTORY, DATABASE_NAME)
 
 # Track last sequence number per device for packet loss calculation
 last_seq = {}
@@ -51,6 +57,10 @@ def init_db():
             cursor.execute('UPDATE data SET timestamp = ? WHERE timestamp IS NULL', (current_time,))
         
         conn.commit()
+
+
+# Ensure database exists as soon as the module is imported
+init_db()
 
 @socketio.on('connect')
 def handle_connect():
@@ -765,10 +775,57 @@ def index():
                 /* Feed Header with Search/Filter - Task 8 - Requirements 5.1, 5.2 */
                 .feed-header {
                     display: flex;
-                    justify-content: flex-end;
+                    justify-content: space-between;
                     align-items: center;
+                    flex-wrap: wrap;
+                    gap: var(--spacing-md);
                     margin-bottom: var(--spacing-lg);
                     padding: 0 var(--spacing-xs);
+                }
+
+                .feed-actions {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: var(--spacing-sm);
+                }
+
+                .action-button {
+                    border: none;
+                    border-radius: var(--radius-md);
+                    padding: var(--spacing-sm) var(--spacing-xl);
+                    font-size: var(--font-size-sm);
+                    font-weight: var(--font-weight-semibold);
+                    cursor: pointer;
+                    color: var(--color-white);
+                    background-color: var(--color-info);
+                    box-shadow: var(--shadow-sm);
+                    transition: background-color var(--transition-normal), transform var(--transition-fast);
+                }
+
+                .action-button:hover {
+                    transform: translateY(-1px);
+                }
+
+                .action-button:disabled {
+                    opacity: 0.6;
+                    cursor: not-allowed;
+                    transform: none;
+                }
+
+                .action-button--secondary {
+                    background-color: #0f4cd8;
+                }
+
+                .action-button--secondary:hover:not(:disabled) {
+                    background-color: #0c3eb1;
+                }
+
+                .action-button--danger {
+                    background-color: var(--color-danger);
+                }
+
+                .action-button--danger:hover:not(:disabled) {
+                    background-color: #b91c1c;
                 }
                 
                 /* Filter Input Styling - Requirement 5.1 */
@@ -806,6 +863,16 @@ def index():
                     .filter-input {
                         width: 100%;
                         max-width: 280px;
+                    }
+
+                    .feed-actions {
+                        width: 100%;
+                        justify-content: center;
+                    }
+                    
+                    .action-button {
+                        flex: 1;
+                        min-width: 140px;
                     }
                 }
                 
@@ -966,14 +1033,125 @@ def index():
             
             <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.min.js"></script>
             <script>
+                let isFullTableLoaded = false;
+                const LIVE_ROW_LIMIT = 20;
+                let isDatabaseLoading = false;
+                let bufferedRows = [];
+
+                function formatTimestamp(timestamp) {
+                    if (!timestamp) {
+                        return '--:--:--';
+                    }
+                    const parsed = new Date(timestamp);
+                    if (!Number.isNaN(parsed.getTime())) {
+                        return parsed.toLocaleTimeString('en-US', {
+                            hour12: false,
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit'
+                        });
+                    }
+                    if (typeof timestamp === 'string' && timestamp.includes('T')) {
+                        return timestamp.split('T')[1].split('.')[0];
+                    }
+                    return timestamp;
+                }
+
+                function buildReceiverLabel(deviceId) {
+                    if (!deviceId) {
+                        return 'Receiver --';
+                    }
+                    const numericPart = deviceId.replace(/[^0-9]/g, '');
+                    return `Receiver ${numericPart || '--'}`;
+                }
+
+                function createTableRow(rowData) {
+                    const tr = document.createElement('tr');
+                    const cells = [
+                        { className: 'device-id-col', value: rowData.device_id || '--' },
+                        { className: 'receiver-col', value: rowData.receiver_label || buildReceiverLabel(rowData.device_id) },
+                        { className: 'seq-col', value: rowData.seq ?? '--' },
+                        { className: 'packet-loss-col', value: rowData.packet_loss ?? '--' },
+                        { className: 'rssi-col', value: rowData.rssi ?? '--' },
+                        { className: 'time-col', value: rowData.time_display || formatTimestamp(rowData.timestamp) }
+                    ];
+                    cells.forEach(cell => {
+                        const td = document.createElement('td');
+                        td.className = cell.className;
+                        td.textContent = cell.value !== undefined && cell.value !== null ? cell.value : '--';
+                        tr.appendChild(td);
+                    });
+                    return tr;
+                }
+
+                function appendRowToTable(rowData, insertAtTop = false) {
+                    const tableBody = document.getElementById('data-rows');
+                    if (!tableBody) {
+                        return;
+                    }
+                    const newRow = createTableRow(rowData);
+                    if (insertAtTop && tableBody.firstChild) {
+                        tableBody.insertBefore(newRow, tableBody.firstChild);
+                        return;
+                    }
+                    tableBody.appendChild(newRow);
+                }
+
+                function renderTableRows(rows = []) {
+                    const tableBody = document.getElementById('data-rows');
+                    if (!tableBody) {
+                        return;
+                    }
+                    tableBody.innerHTML = '';
+                    rows.forEach(row => {
+                        appendRowToTable({
+                            device_id: row.device_id,
+                            seq: row.seq,
+                            packet_loss: row.packet_loss,
+                            rssi: row.rssi ?? '--',
+                            timestamp: row.timestamp
+                        }, false);
+                    });
+                }
+
+                function enforceLiveRowLimit(limit = LIVE_ROW_LIMIT) {
+                    if (isFullTableLoaded) {
+                        return;
+                    }
+                    const tableBody = document.getElementById('data-rows');
+                    if (!tableBody) {
+                        return;
+                    }
+                    while (tableBody.children.length > limit) {
+                        tableBody.removeChild(tableBody.lastElementChild);
+                    }
+                }
+
+                function flushBufferedRows() {
+                    if (!bufferedRows.length) {
+                        return;
+                    }
+                    bufferedRows.forEach(row => {
+                        appendRowToTable(row, true);
+                    });
+                    bufferedRows = [];
+                    enforceLiveRowLimit();
+                }
+
                 /**
                  * Filter functionality for live feed table - Task 8
                  * Requirements: 5.1, 5.2 - Real-time filtering by Device ID
                  */
                 function applyFilter() {
                     const filterInput = document.getElementById('device-filter');
+                    if (!filterInput) {
+                        return;
+                    }
                     const filterValue = filterInput.value.toLowerCase().trim();
                     const tableBody = document.getElementById('data-rows');
+                    if (!tableBody) {
+                        return;
+                    }
                     const rows = tableBody.getElementsByTagName('tr');
                     
                     // Show/hide rows based on filter - Requirement 5.2
@@ -990,6 +1168,71 @@ def index():
                             } else {
                                 row.style.display = 'none';
                             }
+                        }
+                    }
+                }
+
+                async function loadDatabase() {
+                    if (isDatabaseLoading) {
+                        return;
+                    }
+                    const loadButton = document.getElementById('load-db-btn');
+                    if (loadButton) {
+                        loadButton.disabled = true;
+                    }
+                    isDatabaseLoading = true;
+                    try {
+                        const response = await fetch('/data/all');
+                        if (!response.ok) {
+                            throw new Error('Unable to load database.');
+                        }
+                        const payload = await response.json();
+                        renderTableRows(payload.rows || []);
+                        isFullTableLoaded = true;
+                    } catch (error) {
+                        console.error('Failed to load database', error);
+                        alert('Unable to load database. Please check the server logs for details.');
+                    } finally {
+                        isDatabaseLoading = false;
+                        flushBufferedRows();
+                        applyFilter();
+                        if (loadButton) {
+                            loadButton.disabled = false;
+                        }
+                    }
+                }
+
+                async function clearDatabase() {
+                    const shouldClear = confirm('Clearing the database will remove all stored rows. Continue?');
+                    if (!shouldClear) {
+                        return;
+                    }
+                    const clearButton = document.getElementById('clear-db-btn');
+                    if (clearButton) {
+                        clearButton.disabled = true;
+                    }
+                    try {
+                        const response = await fetch('/data/clear', { method: 'POST' });
+                        if (!response.ok) {
+                            throw new Error('Unable to clear database.');
+                        }
+                        const payload = await response.json();
+                        renderTableRows([]);
+                        const receiversContainer = document.getElementById('receivers-container');
+                        if (receiversContainer) {
+                            receiversContainer.innerHTML = '';
+                        }
+                        bufferedRows = [];
+                        isDatabaseLoading = false;
+                        isFullTableLoaded = false;
+                        applyFilter();
+                        alert(`Database cleared (${payload.deleted_rows || 0} rows removed).`);
+                    } catch (error) {
+                        console.error('Failed to clear database', error);
+                        alert('Unable to clear database. Please check the server logs for details.');
+                    } finally {
+                        if (clearButton) {
+                            clearButton.disabled = false;
                         }
                     }
                 }
@@ -1028,6 +1271,16 @@ def index():
                                 applyFilter();
                             }
                         });
+                    }
+
+                    const loadDbButton = document.getElementById('load-db-btn');
+                    if (loadDbButton) {
+                        loadDbButton.addEventListener('click', loadDatabase);
+                    }
+
+                    const clearDbButton = document.getElementById('clear-db-btn');
+                    if (clearDbButton) {
+                        clearDbButton.addEventListener('click', clearDatabase);
                     }
                     
                     // WebSocket connection status
@@ -1168,43 +1421,21 @@ def index():
                         // Update the corresponding receiver card with new data and flash animation
                         updateReceiverCard(msg.device_id, msg.data, msg.seq, msg.packet_loss);
                         
-                        // Add new row to live feed table with proper structure - Task 7
-                        var tableBody = document.getElementById("data-rows");
-                        var row = tableBody.insertRow(0); // Insert at top for newest first
-                        
-                        // Create cells with proper classes and data - Requirements 3.2, 3.4
-                        var deviceIdCell = row.insertCell(0);
-                        deviceIdCell.className = 'device-id-col';
-                        deviceIdCell.textContent = msg.device_id;
-                        
-                        var receiverCell = row.insertCell(1);
-                        receiverCell.className = 'receiver-col';
-                        receiverCell.textContent = `Receiver ${msg.device_id.replace(/[^0-9]/g, '') || '1'}`;
-                        
-                        var seqCell = row.insertCell(2);
-                        seqCell.className = 'seq-col';
-                        seqCell.textContent = msg.seq;
-                        
-                        var packetLossCell = row.insertCell(3);
-                        packetLossCell.className = 'packet-loss-col';
-                        packetLossCell.textContent = msg.packet_loss;
-                        
-                        var rssiCell = row.insertCell(4);
-                        rssiCell.className = 'rssi-col';
-                        rssiCell.textContent = msg.data.rssi || '--';
-                        
-                        var timeCell = row.insertCell(5);
-                        timeCell.className = 'time-col';
-                        timeCell.textContent = timeString;
+                        const tableRow = {
+                            device_id: msg.device_id,
+                            seq: msg.seq,
+                            packet_loss: msg.packet_loss,
+                            rssi: msg.data.rssi || '--',
+                            time_display: timeString
+                        };
 
-                        // Keep only the latest 20 rows
-                        var rows = tableBody.getElementsByTagName('tr');
-                        if (rows.length > 20) {
-                            tableBody.removeChild(rows[rows.length - 1]); // Remove oldest row
+                        if (isDatabaseLoading) {
+                            bufferedRows.push(tableRow);
+                        } else {
+                            appendRowToTable(tableRow, true);
+                            enforceLiveRowLimit();
+                            applyFilter();
                         }
-                        
-                        // Apply current filter to new row - Requirement 5.2
-                        applyFilter();
                     });
 
                 });
@@ -1237,6 +1468,10 @@ def index():
                         <div class="feed-content">
                             <!-- Search/Filter Header - Task 8 - Requirements 5.1, 5.2 -->
                             <div class="feed-header">
+                                <div class="feed-actions">
+                                    <button type="button" class="action-button action-button--secondary" id="load-db-btn">Load Database</button>
+                                    <button type="button" class="action-button action-button--danger" id="clear-db-btn">Clear Database</button>
+                                </div>
                                 <input type="text" class="filter-input" id="device-filter" placeholder="Filter by Device ID..." autocomplete="off">
                             </div>
                             <!-- Scrollable table container with proper structure - Task 7 -->
@@ -1279,12 +1514,59 @@ def index():
     
     return render_template_string(html, rows=rows)
 
+
+@app.route('/data/all', methods=['GET'])
+def load_all_data():
+    if not DATABASE_PATH:
+        return jsonify({'status': 'error', 'message': 'Database not initialized'}), 500
+    try:
+        with sqlite3.connect(DATABASE_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT device_id, data, seq, packet_loss, timestamp FROM data ORDER BY id DESC")
+            records = cursor.fetchall()
+    except sqlite3.Error as exc:
+        return jsonify({'status': 'error', 'message': str(exc)}), 500
+
+    serialized = []
+    for device_id, data_blob, seq, packet_loss, timestamp in records:
+        payload = {}
+        try:
+            payload = json.loads(data_blob) if data_blob else {}
+        except (json.JSONDecodeError, TypeError):
+            payload = {}
+
+        serialized.append({
+            'device_id': device_id,
+            'seq': seq,
+            'packet_loss': packet_loss,
+            'rssi': payload.get('rssi'),
+            'timestamp': timestamp
+        })
+
+    return jsonify({'status': 'success', 'rows': serialized})
+
+
+@app.route('/data/clear', methods=['POST'])
+def clear_data():
+    global last_seq
+
+    if not DATABASE_PATH:
+        return jsonify({'status': 'error', 'message': 'Database not initialized'}), 500
+
+    try:
+        with sqlite3.connect(DATABASE_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM data")
+            total_rows = cursor.fetchone()[0]
+            cursor.execute("DELETE FROM data")
+            cursor.execute("DELETE FROM loss")
+            conn.commit()
+    except sqlite3.Error as exc:
+        return jsonify({'status': 'error', 'message': str(exc)}), 500
+
+    last_seq.clear()
+
+    return jsonify({'status': 'success', 'deleted_rows': total_rows})
+
 if __name__ == '__main__':
-    global finaltime
-    global DATABASE_PATH
-    global DATABASE_NAME
-    finaltime = time.ctime()
-    DATABASE_NAME = str("device_data_"+finaltime+"_.db").replace(" ", "_").replace(":", "_")
-    DATABASE_PATH = os.getcwd() + "/" + DATABASE_NAME
-    init_db()
     socketio.run(app, debug=True, host="0.0.0.0", port=8000, allow_unsafe_werkzeug=True, use_reloader=True)
