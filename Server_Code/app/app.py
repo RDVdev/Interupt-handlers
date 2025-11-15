@@ -1193,7 +1193,7 @@ def index():
                         rssiCell.className = 'rssi-col';
                         rssiCell.textContent = msg.data.rssi || '--';
                         
-                        var timeCell = row.insertCell(6);
+                        var timeCell = row.insertCell(5);
                         timeCell.className = 'time-col';
                         timeCell.textContent = timeString;
 
