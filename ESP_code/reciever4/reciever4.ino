@@ -105,7 +105,7 @@ void connectToWiFi() {
 
 // ----- Upload RSSI to Flask server -----
 void uploadRSSI(int seq, int rssi) {
-  String endpoint = "/RX003/data";  // Flask endpoint
+  String endpoint = "/RX004/data";  // Flask endpoint
   String payload = String("{\"message\":\"skywalker\",\"seq\":") + String(seq) +
                    String(",\"rssi\":") + String(rssi) + "}";
 

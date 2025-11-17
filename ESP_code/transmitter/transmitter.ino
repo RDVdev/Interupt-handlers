@@ -11,16 +11,16 @@ const char* TEAM_ID = "skywalker";
 int packetCount = 0;
 
 void setup() {
-  Serial.begin(115200);
-  while (!Serial);
+  // Serial.begin(115200);
+  // while (!Serial);
 
-  Serial.println("\n=== Initializing LoRa Transmitter ===");
+  // Serial.println("\n=== Initializing LoRa Transmitter ===");
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
   LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
   if (!LoRa.begin(868E6)) {   // Use 915E6 for US region
-    Serial.println("LoRa init failed! Check wiring.");
+    // Serial.println("LoRa init failed! Check wiring.");
     while (1);
   }
 
@@ -31,7 +31,7 @@ void setup() {
   LoRa.setSignalBandwidth(125E3);
   LoRa.setCodingRate4(8);
 
-  Serial.println("LoRa Transmitter ready! Press the button to send packets.");
+  // Serial.println("LoRa Transmitter ready! Press the button to send packets.");
 }
 
 void loop() {
@@ -46,7 +46,7 @@ void loop() {
       packetCount++;
       delay(500); // delay between packets
 
-    Serial.println("✅ Done sending packets.");
+    // Serial.println("✅ Done sending packets.");
   }
 
   // Wait until button released before next trigger
@@ -56,8 +56,8 @@ void loop() {
 }
 
 void sendPacket() {
-  Serial.print("Sending packet SEQ:");
-  Serial.println(packetCount + 1);
+  // Serial.print("Sending packet SEQ:");
+  // Serial.println(packetCount + 1);
 
   LoRa.beginPacket();
   LoRa.print(TEAM_ID);
@@ -65,5 +65,5 @@ void sendPacket() {
   LoRa.print(packetCount + 1);
   LoRa.endPacket();
 
-  Serial.println("→ Packet sent!");
+  // Serial.println("→ Packet sent!");
 }
